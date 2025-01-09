@@ -27,11 +27,18 @@ x86/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 bld/
-[Bb]in/
 [Oo]bj/
 [Oo]ut/
 [Ll]og/
 [Ll]ogs/
+
+# Ignorar todo el contenido de 'bin'
+[Bb]in/
+
+# Pero no ignorar la carpeta 'html' dentro de 'bin'
+![Bb]in/html/
+![Bb]in/html/**
+
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/
