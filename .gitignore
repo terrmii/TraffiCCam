@@ -32,8 +32,6 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
-# Ignorar todo el contenido de 'bin'
-[Bb]in/
 
 # Pero no ignorar la carpeta 'html' dentro de 'bin'
 ![Bb]in/html/
