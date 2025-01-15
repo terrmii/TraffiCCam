@@ -113,6 +113,12 @@ namespace TraffiCCam
                         if (File.Exists(htmlFilePath))
                         {
                             webView.CoreWebView2.Navigate(new Uri(htmlFilePath).AbsoluteUri);
+
+                            // Inyecta el nombre del usuario al HTML después de cargar la página
+                            webView.CoreWebView2.NavigationCompleted += async (s, e) =>
+                            {
+                                await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('username').innerText = '{user.name}';");
+                            };
                         }
                         else
                         {
@@ -131,6 +137,7 @@ namespace TraffiCCam
                 MessageBox.Show("Error al iniciar sesión: " + ex.Message);
             }
         }
+
 
         public class User
         {
