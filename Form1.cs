@@ -1,5 +1,9 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -26,10 +30,7 @@ namespace TraffiCCam
         {
             try
             {
-                // Asegura la inicialización del WebView2
                 await webView.EnsureCoreWebView2Async();
-
-                // Configura el estado de inicialización
                 isWebViewReady = true;
 
                 string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
@@ -44,7 +45,6 @@ namespace TraffiCCam
                     MessageBox.Show("El archivo HTML no se encontró: " + htmlFilePath);
                 }
 
-                // Maneja los mensajes enviados desde el HTML
                 webView.WebMessageReceived += WebView_WebMessageReceived;
             }
             catch (Exception ex)
@@ -83,7 +83,7 @@ namespace TraffiCCam
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error al procesar el mensaje: " + ex.Message + "\nMensaje: " + e.TryGetWebMessageAsString());
+                MessageBox.Show("Error al procesar el mensaje: " + ex.Message);
             }
         }
 
@@ -91,34 +91,53 @@ namespace TraffiCCam
         {
             try
             {
-                if (username == "admin" && password == "admin")
+                using (var client = new HttpClient())
                 {
-                    // Redirige al HTML de inicio si las credenciales son correctas
-                    string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
-                    string htmlFilePath = Path.Combine(appDirectory, "html", "inicio.html");
+                    client.BaseAddress = new Uri("http://10.10.13.154:8080");
 
-                    if (File.Exists(htmlFilePath))
+                    // Llama a la API para obtener los usuarios
+                    var response = await client.GetAsync("/users");
+                    response.EnsureSuccessStatusCode();
+
+                    var responseData = await response.Content.ReadAsStringAsync();
+                    var users = JsonSerializer.Deserialize<User[]>(responseData);
+
+                    // Verifica las credenciales
+                    var user = users?.FirstOrDefault(u => u.name == username && u.password == password);
+                    if (user != null)
                     {
-                        if (isWebViewReady)
+                        // Redirige al HTML de inicio si las credenciales son correctas
+                        string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
+                        string htmlFilePath = Path.Combine(appDirectory, "html", "inicio.html");
+
+                        if (File.Exists(htmlFilePath))
                         {
                             webView.CoreWebView2.Navigate(new Uri(htmlFilePath).AbsoluteUri);
+                        }
+                        else
+                        {
+                            MessageBox.Show("El archivo HTML de inicio no se encontró.");
                         }
                     }
                     else
                     {
-                        MessageBox.Show("El archivo HTML de inicio no se encontró.");
+                        // Muestra un mensaje de error en la página HTML
+                        await webView.CoreWebView2.ExecuteScriptAsync("document.body.innerHTML += '<p>Error! Credenciales incorrectas.</p>';");
                     }
-                }
-                else
-                {
-                    // Notifica al HTML que las credenciales son incorrectas
-                    webView.CoreWebView2.ExecuteScriptAsync("document.body.innerHTML += '<p class=\"text-red-500\">Credenciales incorrectas</p>';");
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error al iniciar sesión: " + ex.Message);
             }
+        }
+
+        public class User
+        {
+            public int id { get; set; }
+            public string name { get; set; }
+            public string password { get; set; }
+            public bool admin { get; set; }
         }
     }
 }
