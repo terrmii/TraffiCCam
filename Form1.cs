@@ -1,11 +1,16 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.WinForms;
+using Newtonsoft.Json;
+using static TraffiCCam.Form1;
+using JsonSerializer = System.Text.Json.JsonSerializer;
 
 namespace TraffiCCam
 {
@@ -38,6 +43,11 @@ namespace TraffiCCam
 
                 if (File.Exists(htmlFilePath))
                 {
+                    // Desactiva la caché del WebView2
+                    webView.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
+                    webView.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
+                    webView.CoreWebView2.Settings.IsWebMessageEnabled = true;
+
                     webView.CoreWebView2.Navigate(new Uri(htmlFilePath).AbsoluteUri);
                 }
                 else
@@ -87,7 +97,27 @@ namespace TraffiCCam
             }
         }
 
-        private async void IniciarSesion(string username, string password)
+        private async Task<List<User>> LeerUsuarios()
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                HttpResponseMessage response = await client.GetAsync("http://10.10.13.154:8080/users");
+                if (response.IsSuccessStatusCode)
+                {
+                    string json = await response.Content.ReadAsStringAsync();
+                    List<User> usuarios = JsonConvert.DeserializeObject<List<User>>(json);
+
+                    return usuarios
+                }
+                else
+                {
+                    MessageBox.Show("Error al cargar los usuarios");
+                    return null;
+                }
+            }
+        }
+
+        private async void IniciarSesion(string name, string password)
         {
             try
             {
@@ -95,16 +125,17 @@ namespace TraffiCCam
                 {
                     client.BaseAddress = new Uri("http://10.10.13.154:8080");
 
-                    // Llama a la API para obtener los usuarios
-                    var response = await client.GetAsync("/users");
-                    response.EnsureSuccessStatusCode();
+                    // Crea el contenido del POST con el formato correcto
+                    var content = new StringContent(JsonSerializer.Serialize(new { name, password }), System.Text.Encoding.UTF8, "application/json");
 
-                    var responseData = await response.Content.ReadAsStringAsync();
-                    var users = JsonSerializer.Deserialize<User[]>(responseData);
+                    // Añade los encabezados necesarios
+                    content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                    client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
-                    // Verifica las credenciales
-                    var user = users?.FirstOrDefault(u => u.name == username && u.password == password);
-                    if (user != null)
+                    // Llama a la API para iniciar sesión
+                    var response = await client.PostAsync("/login", content);
+
+                    if (response.IsSuccessStatusCode)
                     {
                         // Redirige al HTML de inicio si las credenciales son correctas
                         string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
@@ -113,11 +144,27 @@ namespace TraffiCCam
                         if (File.Exists(htmlFilePath))
                         {
                             webView.CoreWebView2.Navigate(new Uri(htmlFilePath).AbsoluteUri);
-
-                            // Inyecta el nombre del usuario al HTML después de cargar la página
                             webView.CoreWebView2.NavigationCompleted += async (s, e) =>
                             {
-                                await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('username').innerText = '{user.name}';");
+                                // Enviar el nombre de usuario al HTML
+                                await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('username').innerText = '{name}';");
+
+                                // Obtener la lista de usuarios y enviarla al HTML
+                                List<User> users = await LeerUsuarios();
+
+                                //Pasarl users a JSON
+                                string jsonUsers = JsonSerializer.Serialize(users);
+
+                                // Enviar la lista de usuarios al HTML
+                                await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('users').innerText = '{jsonUsers}';");
+
+                                // Enviar mensaje de éxito al HTML
+                                await webView.CoreWebView2.ExecuteScriptAsync("document.getElementById('message').innerText = 'Inicio de sesión exitoso';");
+
+                                // Enviar mensaje de error al HTML
+                                await webView.CoreWebView2.ExecuteScriptAsync("document.getElementById('error').innerText = '';");
+
+
                             };
                         }
                         else
@@ -127,24 +174,25 @@ namespace TraffiCCam
                     }
                     else
                     {
-                        // Muestra un mensaje de error en la página HTML
-                        await webView.CoreWebView2.ExecuteScriptAsync("document.body.innerHTML += '<p>Error! Credenciales incorrectas.</p>';");
+                        MessageBox.Show("Inicio de sesión fallido. Verifique sus credenciales.");
                     }
                 }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                MessageBox.Show("Error al enviar la solicitud: " + httpEx.Message);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error al iniciar sesión: " + ex.Message);
             }
         }
-
-
         public class User
         {
-            public int id { get; set; }
-            public string name { get; set; }
-            public string password { get; set; }
-            public bool admin { get; set; }
+            public int Id { get; set; }
+            public string Name { get; set; }
+            public string Password { get; set; }
+            public bool Admin { get; set; }
         }
     }
 }
