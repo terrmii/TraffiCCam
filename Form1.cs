@@ -85,6 +85,11 @@ namespace TraffiCCam
                         // Llama al método de inicio de sesión
                         IniciarSesion(username, password);
                     }
+                    else if (message.Contains("deleteUser"))
+                    {
+                        var userId = int.Parse(message.Split('=')[1]);
+                        EliminarUsuarioDesdeUI(userId);
+                    }
                     else
                     {
                         MessageBox.Show("Formato de mensaje no válido: " + message);
@@ -106,8 +111,7 @@ namespace TraffiCCam
                 {
                     string json = await response.Content.ReadAsStringAsync();
                     List<User> usuarios = JsonConvert.DeserializeObject<List<User>>(json);
-
-                    return usuarios
+                    return usuarios;
                 }
                 else
                 {
@@ -125,51 +129,40 @@ namespace TraffiCCam
                 {
                     client.BaseAddress = new Uri("http://10.10.13.154:8080");
 
-                    // Crea el contenido del POST con el formato correcto
                     var content = new StringContent(JsonSerializer.Serialize(new { name, password }), System.Text.Encoding.UTF8, "application/json");
-
-                    // Añade los encabezados necesarios
                     content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
                     client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
-                    // Llama a la API para iniciar sesión
                     var response = await client.PostAsync("/login", content);
 
                     if (response.IsSuccessStatusCode)
                     {
-                        // Redirige al HTML de inicio si las credenciales son correctas
-                        string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
-                        string htmlFilePath = Path.Combine(appDirectory, "html", "inicio.html");
+                        List<User> users = await LeerUsuarios();
 
-                        if (File.Exists(htmlFilePath))
+                        if (users != null)
                         {
-                            webView.CoreWebView2.Navigate(new Uri(htmlFilePath).AbsoluteUri);
-                            webView.CoreWebView2.NavigationCompleted += async (s, e) =>
+                            string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
+                            string htmlFilePath = Path.Combine(appDirectory, "html", "inicio.html");
+
+                            if (File.Exists(htmlFilePath))
                             {
-                                // Enviar el nombre de usuario al HTML
-                                await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('username').innerText = '{name}';");
+                                webView.CoreWebView2.Navigate(new Uri(htmlFilePath).AbsoluteUri);
+                                webView.CoreWebView2.NavigationCompleted += async (s, e) =>
+                                {
+                                    await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('username').innerText = '{name}';");
 
-                                // Obtener la lista de usuarios y enviarla al HTML
-                                List<User> users = await LeerUsuarios();
-
-                                //Pasarl users a JSON
-                                string jsonUsers = JsonSerializer.Serialize(users);
-
-                                // Enviar la lista de usuarios al HTML
-                                await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('users').innerText = '{jsonUsers}';");
-
-                                // Enviar mensaje de éxito al HTML
-                                await webView.CoreWebView2.ExecuteScriptAsync("document.getElementById('message').innerText = 'Inicio de sesión exitoso';");
-
-                                // Enviar mensaje de error al HTML
-                                await webView.CoreWebView2.ExecuteScriptAsync("document.getElementById('error').innerText = '';");
-
-
-                            };
+                                    var usersJson = JsonSerializer.Serialize(users);
+                                    await webView.CoreWebView2.ExecuteScriptAsync($"updateUsersTable({usersJson});");
+                                };
+                            }
+                            else
+                            {
+                                MessageBox.Show("El archivo HTML de inicio no se encontró.");
+                            }
                         }
                         else
                         {
-                            MessageBox.Show("El archivo HTML de inicio no se encontró.");
+                            MessageBox.Show("No se encontraron usuarios.", "Lista de Usuarios");
                         }
                     }
                     else
@@ -187,6 +180,100 @@ namespace TraffiCCam
                 MessageBox.Show("Error al iniciar sesión: " + ex.Message);
             }
         }
+
+        private async Task<bool> EliminarUsuario(int userId)
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                HttpResponseMessage response = await client.DeleteAsync($"http://10.10.13.154:8080/users/{userId}");
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+                else
+                {
+                    MessageBox.Show("Error al eliminar el usuario");
+                    return false;
+                }
+            }
+        }
+
+        private async void EliminarUsuarioDesdeUI(int userId)
+        {
+            bool eliminado = await EliminarUsuario(userId);
+            if (eliminado)
+            {
+                List<User> users = await LeerUsuarios();
+                if (users != null)
+                {
+                    var usersJson = JsonSerializer.Serialize(users);
+                    await webView.CoreWebView2.ExecuteScriptAsync($"updateUsersTable({usersJson});");
+                }
+            }
+        }
+
+        // Método para actualizar la tabla de usuarios en la interfaz web
+        private async void ActualizarTablaUsuarios()
+        {
+            List<User> users = await LeerUsuarios();
+            if (users != null)
+            {
+                var usersJson = JsonSerializer.Serialize(users);
+                await webView.CoreWebView2.ExecuteScriptAsync($"updateUsersTable({usersJson});");
+            }
+        }
+
+        // Método para manejar el evento de cierre de sesión
+        private void CerrarSesion()
+        {
+            string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            string htmlFilePath = Path.Combine(appDirectory, "html", "login.html");
+
+            if (File.Exists(htmlFilePath))
+            {
+                webView.CoreWebView2.Navigate(new Uri(htmlFilePath).AbsoluteUri);
+            }
+            else
+            {
+                MessageBox.Show("El archivo HTML de inicio de sesión no se encontró.");
+            }
+        }
+
+        // Método para manejar el evento de actualización de usuario
+        private async void ActualizarUsuario(int userId, string newName, string newPassword, bool newAdminStatus)
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri("http://10.10.13.154:8080");
+
+                    var content = new StringContent(JsonSerializer.Serialize(new { Id = userId, Name = newName, Password = newPassword, Admin = newAdminStatus }), System.Text.Encoding.UTF8, "application/json");
+                    content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                    client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                    var response = await client.PutAsync($"/users/{userId}", content);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        ActualizarTablaUsuarios();
+                    }
+                    else
+                    {
+                        MessageBox.Show("Error al actualizar el usuario.");
+                    }
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                MessageBox.Show("Error al enviar la solicitud: " + httpEx.Message);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al actualizar el usuario: " + ex.Message);
+            }
+        }
+
         public class User
         {
             public int Id { get; set; }
