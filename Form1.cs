@@ -10,6 +10,7 @@ using System.Windows.Forms;
 using Microsoft.Web.WebView2.WinForms;
 using Newtonsoft.Json;
 using static TraffiCCam.Form1;
+using JsonException = System.Text.Json.JsonException;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 
 namespace TraffiCCam
@@ -90,11 +91,20 @@ namespace TraffiCCam
                         var userId = int.Parse(message.Split('=')[1]);
                         EliminarUsuarioDesdeUI(userId);
                     }
+                    else if (message.Contains("addUser"))
+                    {
+                        var userData = JsonConvert.DeserializeObject<User>(message);
+                        _ = AgregarUsuario(userData.Name, userData.Password);
+                    }
                     else
                     {
                         MessageBox.Show("Formato de mensaje no válido: " + message);
                     }
                 }
+            }
+            catch (JsonException jsonEx)
+            {
+                MessageBox.Show("Error al procesar el mensaje JSON: " + jsonEx.Message);
             }
             catch (Exception ex)
             {
@@ -271,6 +281,49 @@ namespace TraffiCCam
             catch (Exception ex)
             {
                 MessageBox.Show("Error al actualizar el usuario: " + ex.Message);
+            }
+        }
+
+        // Anadir Usuario
+        private async Task<bool> AgregarUsuario(string name, string password)
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri("http://10.10.13.154:8080");
+
+                    // JSON con la estructura esperada
+                    var userData = new
+                    {
+                        name = name,
+                        password = password
+                    };
+
+                    string jsonString = JsonSerializer.Serialize(userData);
+                    var jsonContent = new StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
+
+                    HttpResponseMessage response = await client.PostAsync("/users", jsonContent);
+
+                    string responseContent = await response.Content.ReadAsStringAsync(); // Obtener respuesta de la API
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        MessageBox.Show("Usuario agregado exitosamente.");
+                        ActualizarTablaUsuarios();
+                        return true;
+                    }
+                    else
+                    {
+                        MessageBox.Show($"Error al agregar usuario: {response.StatusCode}\n{responseContent}");
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al agregar usuario: " + ex.Message);
+                return false;
             }
         }
 
