@@ -75,6 +75,8 @@ namespace TraffiCCam
                 }
 
                 var message = e.TryGetWebMessageAsString();
+                //Mostrar message por consola
+                Console.WriteLine(message);
                 if (!string.IsNullOrEmpty(message))
                 {
                     if (message.Contains("username") && message.Contains("password"))
@@ -88,13 +90,39 @@ namespace TraffiCCam
                     }
                     else if (message.Contains("deleteUser"))
                     {
-                        var userId = int.Parse(message.Split('=')[1]);
-                        EliminarUsuarioDesdeUI(userId);
+                        if (int.TryParse(message.Split('=')[1], out int userId))
+                        {
+                            EliminarUsuarioDesdeUI(userId);
+                        }
+                        else
+                        {
+                            MessageBox.Show("El ID de usuario no es válido.");
+                        }
                     }
                     else if (message.Contains("addUser"))
                     {
                         var userData = JsonConvert.DeserializeObject<User>(message);
                         _ = AgregarUsuario(userData.Name, userData.Password);
+                    }
+                    else if (message.Contains("editUser"))
+                    {
+                        var messageObject = JsonSerializer.Deserialize<Dictionary<string, object>>(message);
+                        var userData = JsonSerializer.Deserialize<User>(messageObject["data"].ToString());
+                        ActualizarUsuario(userData.Id, userData.Name, userData.Password);
+                    }
+                    else if (message.Contains("logout"))
+                    {
+                        CerrarSesion();
+                    }
+                    else if (message.Contains("fetchIncidences"))
+                    {
+                        _ = FetchIncidences();
+                    }
+                    else if (message.Contains("fetchIncidencesByCity"))
+                    {
+                        var messageObject = JsonSerializer.Deserialize<Dictionary<string, string>>(message);
+                        var city = messageObject["city"];
+                        _ = FetchIncidencesByCity(city);
                     }
                     else
                     {
@@ -111,7 +139,109 @@ namespace TraffiCCam
                 MessageBox.Show("Error al procesar el mensaje: " + ex.Message);
             }
         }
+        private async Task FetchIncidencesByCity(string city)
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    HttpResponseMessage response = await client.GetAsync("http://10.10.13.154:8080/incidences");
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string json = await response.Content.ReadAsStringAsync();
+                        var incidences = JsonSerializer.Deserialize<List<Incidence>>(json);
 
+                        // Filtrar incidencias por ciudad
+                        var filteredIncidences = incidences
+                            .Where(i => i.CityTown != null && i.CityTown.Equals(city, StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+
+                        // Limpiar el contenido de la tabla antes de agregar nuevas filas
+                        await webView.CoreWebView2.ExecuteScriptAsync("document.getElementById('incidencesContent').innerHTML = '';");
+
+                        if (filteredIncidences.Any())
+                        {
+                            string tableRows = string.Join("", filteredIncidences.Select(i =>
+                                $"<tr>" +
+                                $"<td class='py-2 px-4 border-b'>{i.Cause}</td>" +
+                                $"<td class='py-2 px-4 border-b'>{i.Latitude}</td>" +
+                                $"<td class='py-2 px-4 border-b'>{i.Longitude}</td>" +
+                                $"<td class='py-2 px-4 border-b'>{i.CityTown}</td>" +
+                                $"<td class='py-2 px-4 border-b'>{i.StartDate}</td>" +
+                                $"<td class='py-2 px-4 border-b'>{i.EndDate}</td>" +
+                                $"</tr>"
+                            ));
+
+                            await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('incidencesContent').innerHTML = `{tableRows}`;");
+                        }
+                        else
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('incidencesContent').innerHTML = '<tr><td colspan=\"6\" class=\"py-2 px-4 border-b text-center\">No hay incidencias disponibles en {city}</td></tr>';");
+                        }
+
+                        await webView.CoreWebView2.ExecuteScriptAsync("document.getElementById('incidencesContainer').classList.remove('hidden');");
+                    }
+                    else
+                    {
+                        MessageBox.Show("Error al obtener las incidencias");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al obtener las incidencias: " + ex.Message);
+            }
+        }
+        private async Task FetchIncidences()
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    HttpResponseMessage response = await client.GetAsync("http://10.10.13.154:8080/incidences");
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string json = await response.Content.ReadAsStringAsync();
+                        var incidences = JsonSerializer.Deserialize<List<Incidence>>(json);
+
+                        var filteredIncidences = incidences.Select(i => new
+                        {
+                            i.Cause,
+                            i.Latitude,
+                            i.Longitude,
+                            i.CityTown,
+                            i.StartDate,
+                            i.EndDate
+                        }).ToList();
+
+                        // Limpiar el contenido de la tabla antes de agregar nuevas filas
+                        await webView.CoreWebView2.ExecuteScriptAsync("document.getElementById('incidencesContent').innerHTML = '';");
+
+                        string tableRows = string.Join("", filteredIncidences.Select(i =>
+                            $"<tr>" +
+                            $"<td class='py-2 px-4 border-b'>{i.Cause}</td>" +
+                            $"<td class='py-2 px-4 border-b'>{i.Latitude}</td>" +
+                            $"<td class='py-2 px-4 border-b'>{i.Longitude}</td>" +
+                            $"<td class='py-2 px-4 border-b'>{i.CityTown}</td>" +
+                            $"<td class='py-2 px-4 border-b'>{i.StartDate}</td>" +
+                            $"<td class='py-2 px-4 border-b'>{i.EndDate}</td>" +
+                            $"</tr>"
+                        ));
+
+                        await webView.CoreWebView2.ExecuteScriptAsync($"document.getElementById('incidencesContent').innerHTML = `{tableRows}`;");
+                        await webView.CoreWebView2.ExecuteScriptAsync("document.getElementById('incidencesContainer').classList.remove('hidden');");
+                    }
+                    else
+                    {
+                        MessageBox.Show("Error al obtener las incidencias");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al obtener las incidencias: " + ex.Message);
+            }
+        }
         private async Task<List<User>> LeerUsuarios()
         {
             using (HttpClient client = new HttpClient())
@@ -250,7 +380,7 @@ namespace TraffiCCam
         }
 
         // Método para manejar el evento de actualización de usuario
-        private async void ActualizarUsuario(int userId, string newName, string newPassword, bool newAdminStatus)
+        private async void ActualizarUsuario(int userId, string newName, string newPassword)
         {
             try
             {
@@ -258,19 +388,40 @@ namespace TraffiCCam
                 {
                     client.BaseAddress = new Uri("http://10.10.13.154:8080");
 
-                    var content = new StringContent(JsonSerializer.Serialize(new { Id = userId, Name = newName, Password = newPassword, Admin = newAdminStatus }), System.Text.Encoding.UTF8, "application/json");
+                    var userData = new
+                    {
+                        Id = userId,
+                        Name = newName,
+                        Password = newPassword
+                    };
+
+                    var content = new StringContent(JsonSerializer.Serialize(userData), System.Text.Encoding.UTF8, "application/json");
                     content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
                     client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
-                    var response = await client.PutAsync($"/users/{userId}", content);
+                    var request = new HttpRequestMessage(new HttpMethod("PATCH"), $"/users/{userId}")
+                    {
+                        Content = content
+                    };
+
+                    // Registrar la solicitud
+                    string requestContent = await content.ReadAsStringAsync();
+                    Console.WriteLine($"Solicitud enviada: {requestContent}");
+
+                    var response = await client.SendAsync(request);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    // Registrar la respuesta
+                    Console.WriteLine($"Respuesta del servidor: {response.StatusCode}\n{responseContent}");
 
                     if (response.IsSuccessStatusCode)
                     {
+                        MessageBox.Show("Usuario actualizado exitosamente.");
                         ActualizarTablaUsuarios();
                     }
                     else
                     {
-                        MessageBox.Show("Error al actualizar el usuario.");
+                        MessageBox.Show($"Error al actualizar el usuario: {response.StatusCode}\n{responseContent}");
                     }
                 }
             }
@@ -283,6 +434,7 @@ namespace TraffiCCam
                 MessageBox.Show("Error al actualizar el usuario: " + ex.Message);
             }
         }
+
 
         // Anadir Usuario
         private async Task<bool> AgregarUsuario(string name, string password)
@@ -333,6 +485,27 @@ namespace TraffiCCam
             public string Name { get; set; }
             public string Password { get; set; }
             public bool Admin { get; set; }
+        }
+
+        public class Incidence
+        {
+            [JsonPropertyName("cause")]
+            public string Cause { get; set; }
+
+            [JsonPropertyName("latitude")]
+            public double Latitude { get; set; }
+
+            [JsonPropertyName("longitude")]
+            public double Longitude { get; set; }
+
+            [JsonPropertyName("cityTown")]
+            public string CityTown { get; set; }
+
+            [JsonPropertyName("startDate")]
+            public string StartDate { get; set; }
+
+            [JsonPropertyName("endDate")]
+            public string EndDate { get; set; }
         }
     }
 }
