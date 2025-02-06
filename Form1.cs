@@ -12,6 +12,9 @@ using Newtonsoft.Json;
 using static TraffiCCam.Form1;
 using JsonException = System.Text.Json.JsonException;
 using JsonSerializer = System.Text.Json.JsonSerializer;
+using iTextSharp.text;
+using iTextSharp.text.pdf;
+
 
 namespace TraffiCCam
 {
@@ -113,6 +116,10 @@ namespace TraffiCCam
                     else if (message.Contains("logout"))
                     {
                         CerrarSesion();
+                    }
+                    else if (message.Contains("generatePdf"))
+                    {
+                        _ = GenerarInformePDF();
                     }
                     else if (message.Contains("addIncidence"))
                     {
@@ -592,6 +599,77 @@ namespace TraffiCCam
 
             [JsonPropertyName("longitude")]
             public double Longitude { get; set; }
+        }
+
+        private async Task GenerarInformePDF()
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    HttpResponseMessage response = await client.GetAsync("http://10.10.13.154:8080/incidences");
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string json = await response.Content.ReadAsStringAsync();
+                        var incidences = JsonSerializer.Deserialize<List<Incidence>>(json);
+
+                        // Crear un documento PDF
+                        Document document = new Document();
+                        string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                        string pdfPath = Path.Combine(documentsPath, "InformeIncidencias.pdf");
+                        PdfWriter.GetInstance(document, new FileStream(pdfPath, FileMode.Create));
+                        document.Open();
+
+                        // Añadir logo
+                        string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
+                        string logoPath = Path.Combine(appDirectory, "html", "img", "logo.png");
+                        if (File.Exists(logoPath))
+                        {
+                            iTextSharp.text.Image logo = iTextSharp.text.Image.GetInstance(logoPath);
+                            logo.ScaleToFit(100f, 100f);
+                            logo.Alignment = Element.ALIGN_CENTER;
+                            document.Add(logo);
+                        }
+
+                        // Añadir título
+                        document.Add(new Paragraph("Informe de Incidencias"));
+                        document.Add(new Paragraph(" ")); // Espacio en blanco
+
+                        // Crear una tabla con 6 columnas
+                        PdfPTable table = new PdfPTable(6);
+                        table.AddCell("Causa");
+                        table.AddCell("Latitud");
+                        table.AddCell("Longitud");
+                        table.AddCell("Ciudad/Pueblo");
+                        table.AddCell("Fecha de Inicio");
+                        table.AddCell("Fecha de Fin");
+
+                        // Añadir filas a la tabla
+                        foreach (var incidence in incidences)
+                        {
+                            table.AddCell(incidence.Cause);
+                            table.AddCell(incidence.Latitude.ToString());
+                            table.AddCell(incidence.Longitude.ToString());
+                            table.AddCell(incidence.CityTown);
+                            table.AddCell(incidence.StartDate);
+                            table.AddCell(incidence.EndDate);
+                        }
+
+                        document.Add(table);
+                        document.Close();
+
+                        MessageBox.Show($"Informe generado exitosamente en: {pdfPath}");
+                    }
+                    else
+                    {
+                        MessageBox.Show("Error al obtener las incidencias");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al generar el informe: " + ex.Message);
+            }
         }
     }
 }
