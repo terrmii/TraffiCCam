@@ -114,15 +114,18 @@ namespace TraffiCCam
                     {
                         CerrarSesion();
                     }
+                    else if (message.Contains("addIncidence"))
+                    {
+                        var incidenceData = JsonConvert.DeserializeObject<Incidence2>(message);
+                        _ = AgregarIncidencia(incidenceData);
+                    }
                     else if (message.Contains("fetchIncidences"))
                     {
                         _ = FetchIncidences();
                     }
-                    else if (message.Contains("fetchIncidencesByCity"))
+                    else if (!string.IsNullOrEmpty(message))
                     {
-                        var messageObject = JsonSerializer.Deserialize<Dictionary<string, string>>(message);
-                        var city = messageObject["city"];
-                        _ = FetchIncidencesByCity(city);
+                        FetchIncidencesByCity(message);
                     }
                     else
                     {
@@ -145,23 +148,19 @@ namespace TraffiCCam
             {
                 using (HttpClient client = new HttpClient())
                 {
-                    HttpResponseMessage response = await client.GetAsync("http://10.10.13.154:8080/incidences");
+                    string requestUri = $"http://10.10.13.154:8080/incidences/city?cityTown={city}";
+                    HttpResponseMessage response = await client.GetAsync(requestUri);
                     if (response.IsSuccessStatusCode)
                     {
                         string json = await response.Content.ReadAsStringAsync();
                         var incidences = JsonSerializer.Deserialize<List<Incidence>>(json);
 
-                        // Filtrar incidencias por ciudad
-                        var filteredIncidences = incidences
-                            .Where(i => i.CityTown != null && i.CityTown.Equals(city, StringComparison.OrdinalIgnoreCase))
-                            .ToList();
-
                         // Limpiar el contenido de la tabla antes de agregar nuevas filas
                         await webView.CoreWebView2.ExecuteScriptAsync("document.getElementById('incidencesContent').innerHTML = '';");
 
-                        if (filteredIncidences.Any())
+                        if (incidences.Any())
                         {
-                            string tableRows = string.Join("", filteredIncidences.Select(i =>
+                            string tableRows = string.Join("", incidences.Select(i =>
                                 $"<tr>" +
                                 $"<td class='py-2 px-4 border-b'>{i.Cause}</td>" +
                                 $"<td class='py-2 px-4 border-b'>{i.Latitude}</td>" +
@@ -478,7 +477,40 @@ namespace TraffiCCam
                 return false;
             }
         }
+        private async Task<bool> AgregarIncidencia(Incidence2 nuevaIncidencia)
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = new Uri("http://10.10.13.154:8080");
 
+                    string jsonString = JsonSerializer.Serialize(nuevaIncidencia);
+                    var jsonContent = new StringContent(jsonString, System.Text.Encoding.UTF8, "application/json");
+
+                    HttpResponseMessage response = await client.PostAsync("/incidences", jsonContent);
+
+                    string responseContent = await response.Content.ReadAsStringAsync(); // Obtener respuesta de la API
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        MessageBox.Show("Incidencia agregada exitosamente.");
+                        // Actualizar la tabla de incidencias si es necesario
+                        return true;
+                    }
+                    else
+                    {
+                        MessageBox.Show($"Error al agregar incidencia: {response.StatusCode}\n{responseContent}");
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al agregar incidencia: " + ex.Message);
+                return false;
+            }
+        }
         public class User
         {
             public int Id { get; set; }
@@ -506,6 +538,60 @@ namespace TraffiCCam
 
             [JsonPropertyName("endDate")]
             public string EndDate { get; set; }
+        }
+
+        public class Incidence2
+        {
+            [JsonPropertyName("incidenceId")]
+            public int IncidenceId { get; set; }
+
+            [JsonPropertyName("sourceId")]
+            public int SourceId { get; set; }
+
+            [JsonPropertyName("incidenceType")]
+            public string IncidenceType { get; set; }
+
+            [JsonPropertyName("autonomousRegion")]
+            public string AutonomousRegion { get; set; }
+
+            [JsonPropertyName("province")]
+            public string Province { get; set; }
+
+            [JsonPropertyName("carRegistration")]
+            public string CarRegistration { get; set; }
+
+            [JsonPropertyName("cause")]
+            public string Cause { get; set; }
+
+            [JsonPropertyName("cityTown")]
+            public string CityTown { get; set; }
+
+            [JsonPropertyName("startDate")]
+            public string StartDate { get; set; }
+
+            [JsonPropertyName("endDate")]
+            public string EndDate { get; set; }
+
+            [JsonPropertyName("incidenceLevel")]
+            public string IncidenceLevel { get; set; }
+
+            [JsonPropertyName("road")]
+            public string Road { get; set; }
+
+            [JsonPropertyName("pkStart")]
+            public int PkStart { get; set; }
+
+            [JsonPropertyName("pkEnd")]
+            public int PkEnd { get; set; }
+
+            [JsonPropertyName("direction")]
+            public string Direction { get; set; }
+
+            [JsonPropertyName("latitude")]
+            public double Latitude { get; set; }
+
+            [JsonPropertyName("longitude")]
+            public double Longitude { get; set; }
         }
     }
 }
